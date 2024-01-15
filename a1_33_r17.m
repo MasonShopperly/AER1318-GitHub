@@ -2,9 +2,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Mason Shopperly
-% AER1410H W Topology Optimization
-% Filename: a1_1.m
-% Description: Mainline to minimize f under g1 & g2 using Newton's method.
+% AER1318H W Topics in Computational Fluid Dynamics
+% Filename: a1_33.m
+% Description: Mainline to determine the exact solution of the
+% shock-tube problem specified in exercise 3.3.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
