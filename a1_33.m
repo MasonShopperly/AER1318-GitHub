@@ -65,8 +65,8 @@ function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gam
     
     options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
     % Solve for the pressure ratio using a nonlinear solver
-    %P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); % Pressure ratio across the shock (Equation 3.54)
-    P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess);
+    P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); % Pressure ratio across the shock (Equation 3.54)
+    %P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess);
     
     % Calculate the shock speed (C) and contact discontinuity speed (V)
     C = aR * sqrt((gamma + 1)/(2*gamma) * P + (gamma - 1)/(2*gamma)); % Shock speed (Equation 3.58)
@@ -98,23 +98,38 @@ end
 
 function P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess)
     % Constants for Newton's method
-    maxIter = 100;      % Maximum number of iterations
+    maxIter = 10000;      % Maximum number of iterations
     tol = 1e-6;         % Tolerance for convergence
-    P = P_guess;            % Initial guess for P, can be set as mid-point of the range based on problem context
-     
+    P = P_guess;        % Initial guess for P
+
     for iter = 1:maxIter
         F = P_fun(P, pL, pR, aL, aR, gamma);   % Evaluate function at current P
         dF = dP_fun(P, pL, pR, aL, aR, gamma); % Evaluate derivative at current P
 
-        % Update the pressure ratio P
-        P = P - F / dF;
+        % Check if derivative is too close to zero
+        if abs(dF) < eps
+            error('Derivative too small, stopping iterations');
+        end
+        
+        % Newton-Raphson update
+        deltaP = F / dF;
+        
+        % Dynamic step size adjustment if the Newton step is too large
+        while abs(deltaP) > 0.5 * abs(P)
+            deltaP = deltaP / 2;
+        end
+        
+        P_new = P - deltaP;
 
         % Check for convergence
         if abs(F) < tol
+            P = P_new;
             break;
         end
+        
+        P = P_new; % Update P for the next iteration
     end
-    
+
     % If Newton's method did not converge, throw an error
     if iter == maxIter
         error('Newton''s method did not converge within the maximum number of iterations');
@@ -126,7 +141,12 @@ function F = P_fun(P, pL, pR, aL, aR, gamma)
     alpha = (gamma + 1) / (gamma - 1);  % Definition of alpha (Equation 3.54)
     term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));  % Part of implicit equation for P (Equation 3.54)
     term2 = (P - 1) / sqrt(1 + alpha * P);  % Part of implicit equation for P (Equation 3.54)
-    term3 = (pR / pL)^(1/(2 * gamma)) * (1 - (P / pR).^( (gamma - 1) / (2 * gamma)));  % Part of implicit equation for P (Equation 3.54)
+    
+    % Ensure P/pR is positive to avoid complex numbers
+    if P / pR <= 0
+        error('P/pR must be positive to avoid complex results in P_fun.');
+    end
+    term3 = (pR / pL).^(1/(2 * gamma)) * (1 - (P / pR).^((gamma - 1) / (2 * gamma)));  % Part of implicit equation for P (Equation 3.54)
     
     F = term1 * term2 - term3;  % Implicit equation to be solved for P (Equation 3.54)
 end
@@ -137,10 +157,19 @@ function dF = dP_fun(P, pL, pR, aL, aR, gamma)
     term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));
     term2 = 1 ./ sqrt(1 + alpha * P);
     term3 = (alpha / 2) * (P - 1) / ((1 + alpha * P).^(3 / 2));
+
+    % Ensure P/pR is positive to avoid complex numbers
+    if P / pR <= 0
+        error('P/pR must be positive to avoid complex results in dP_fun.');
+    end
     term4 = (pR / pL)^(1 / (2 * gamma));
     term5 = ((gamma - 1) / (2 * gamma)) * (P / pR).^((-1 + gamma) / (2 * gamma));
-
-    dF = term1 * (term2 - term3) - term4 * term5;
+    
+    % Calculate derivative using the power rule
+    dP_dTerm3 = -(pR / pL)^(1 / (2 * gamma)) * ((gamma - 1) / (2 * gamma)) * ...
+                (P / pR).^((-1 - gamma) / (2 * gamma)) / pR;
+    
+    dF = term1 * (term2 - term3) - term4 * dP_dTerm3;
 end
 
 function [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma)
@@ -157,12 +186,12 @@ end
 
 function [density, mach_number, pressure] = compute_contact_discontinuity(pL, pR, rhoL, rhoR, gamma, P, V, x_tail, t, x0, aL)
     % Computes the state just behind the contact discontinuity (Region 3)
-    % This is the state at the tail of the expansion fan, which becomes the state just ahead of the contact discontinuity.
-    [~, ~, p_tail] = compute_expansion_fan(x_tail, t, x0, aL, pL, rhoL, gamma); % Pressure at the tail of expansion fan (Used for Region 3)
-    density = rhoL * (p_tail / pL)^(1 / gamma);  % Density in Region 3, using isentropic relations (Section 3.3.2)
-    velocity = V;  % Velocity is constant across the contact discontinuity (Section 3.3.2)
-    mach_number = velocity / aL;  % Mach number just behind the contact discontinuity (Section 3.3.2)
-    pressure = p_tail;  % Pressure is continuous across the contact surface (Section 3.3.2)
+    % Using pressure at the tail of the expansion fan (p_tail)
+    p_tail = pL * ((2/(gamma + 1)) - (gamma - 1)/(aL * gamma * t) * (x_tail - x0))^((2 * gamma)/(gamma - 1));
+    density = rhoL * (p_tail / pL)^(1 / gamma);  
+    velocity = V;  
+    mach_number = velocity / sqrt(gamma * p_tail / density);  
+    pressure = p_tail;  
 end
 
 function [density, mach_number, pressure] = compute_shocked_region(pR, rhoR, gamma, P, C, aL)
