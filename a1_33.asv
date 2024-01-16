@@ -33,7 +33,7 @@ function [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem()
     clc;
     % Initial L & R pressures, densities, specific heat ratio, and solution time as per Exercise 3.3
     [pL, pR, rhoL, rhoR, gamma, t] = deal(1e5, 1e4, 1, 0.125, 1.4, 6.1e-3); 
-    % Sound speeds in left and right sections determined from the specified pressures and densities (Equation 3.13)
+    % Speed of sound in left and right sections (Eq 3.13)
     [aL, aR] = deal(sqrt(gamma * pL / rhoL), sqrt(gamma * pR / rhoR)); 
 end
 
@@ -57,16 +57,15 @@ function [density, mach_number] = solveGoverningEquations(x_domain, t, pL, pR, r
 end
 
 function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0)
-    % (Equation 3.54)
-    alpha = (gamma + 1) / (gamma - 1); 
+    alpha = (gamma + 1) / (gamma - 1); % Used in several shock and expansion calculations (Equation 3.54)
     
-    % Initial guess for pressure ratio P (Related to Section 3.3)
-    P_guess = [0.01 * pR/pL, pL/pR]; 
+    % The equations are sensitive to the input range for P
+    % Ensure the range is physically reasonable, given the problem's context
+    P_guess = [0.01 * pR/pL, pL/pR]; % Initial guess for pressure ratio P (Related to Section 3.3)
     
     options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
     % Solve for the pressure ratio using a nonlinear solver
-    %P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); % Pressure ratio across the shock (Equation 3.54)
-    P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess);
+    P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); % Pressure ratio across the shock (Equation 3.54)
     
     % Calculate the shock speed (C) and contact discontinuity speed (V)
     C = aR * sqrt((gamma + 1)/(2*gamma) * P + (gamma - 1)/(2*gamma)); % Shock speed (Equation 3.58)
@@ -96,51 +95,14 @@ function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gam
     end
 end
 
-function P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess)
-    % Constants for Newton's method
-    maxIter = 100;      % Maximum number of iterations
-    tol = 1e-6;         % Tolerance for convergence
-    P = P_guess;            % Initial guess for P, can be set as mid-point of the range based on problem context
-     
-    for iter = 1:maxIter
-        F = P_fun(P, pL, pR, aL, aR, gamma);   % Evaluate function at current P
-        dF = dP_fun(P, pL, pR, aL, aR, gamma); % Evaluate derivative at current P
-
-        % Update the pressure ratio P
-        P = P - F / dF;
-
-        % Check for convergence
-        if abs(F) < tol
-            break;
-        end
-    end
-    
-    % If Newton's method did not converge, throw an error
-    if iter == maxIter
-        error('Newton''s method did not converge within the maximum number of iterations');
-    end
-end
-
 function F = P_fun(P, pL, pR, aL, aR, gamma)
     % Solves the implicit equation for pressure P across the shock (Equation 3.54 from textbook)
     alpha = (gamma + 1) / (gamma - 1);  % Definition of alpha (Equation 3.54)
     term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));  % Part of implicit equation for P (Equation 3.54)
     term2 = (P - 1) / sqrt(1 + alpha * P);  % Part of implicit equation for P (Equation 3.54)
-    term3 = (pR / pL)^(1/(2 * gamma)) * (1 - (P / pR).^( (gamma - 1) / (2 * gamma)));  % Part of implicit equation for P (Equation 3.54)
+    term3 = (pR / pL)^(1/(2 * gamma)) * (1 - (P / pR)^( (gamma - 1) / (2 * gamma)));  % Part of implicit equation for P (Equation 3.54)
     
     F = term1 * term2 - term3;  % Implicit equation to be solved for P (Equation 3.54)
-end
-
-function dF = dP_fun(P, pL, pR, aL, aR, gamma)
-    % Derivative of the function P_fun with respect to P
-    alpha = (gamma + 1) / (gamma - 1);
-    term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));
-    term2 = 1 ./ sqrt(1 + alpha * P);
-    term3 = (alpha / 2) * (P - 1) / ((1 + alpha * P).^(3 / 2));
-    term4 = (pR / pL)^(1 / (2 * gamma));
-    term5 = ((gamma - 1) / (2 * gamma)) * (P / pR).^((-1 + gamma) / (2 * gamma));
-
-    dF = term1 * (term2 - term3) - term4 * term5;
 end
 
 function [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma)
