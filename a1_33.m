@@ -1,31 +1,27 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 % Mason Shopperly
 % AER1318H W Topics in Computational Fluid Dynamics
 % Filename: a1_33.m
 % Description: Mainline to determine the exact solution of the
 % shock-tube problem specified in exercise 3.3.
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 shockTubeProblem();
 function shockTubeProblem()
     clc; close all;
 
-    % 1. Problem and geometry specification
+    % 1. Problem & geometry specification
     [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem();
     [x0, x_domain] = specifyGeometry();
 
-    % 2. Exact solution of governing equations
-    [density, mach_number] = arrayfun(@(x) getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0), x_domain);
+    % 2. Exact solution of governing equations & plotting
+    [density, mach_number, pressure] = arrayfun(@(x) getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0), x_domain);
+    plotResults(x_domain, density, mach_number, pressure)
 
-    % 3. Post-processing, assessment, and interpretation of results
-    plotResults(x_domain, mach_number, density);
 end
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+%%
 function [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem()
     clc;
     % Initial L & R pressures, densities, specific heat ratio, and solution time as per Exercise 3.3
@@ -33,7 +29,7 @@ function [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem()
     % Sound speeds in left and right sections determined from the specified pressures and densities (Equation 3.13)
     [aL, aR] = deal(sqrt(gamma * pL / rhoL), sqrt(gamma * pR / rhoR)); 
 end
-
+%%
 function [x0, x_domain] = specifyGeometry()
     % Length of the shock tube
     L = 10;
@@ -44,207 +40,153 @@ function [x0, x_domain] = specifyGeometry()
     % Spatial domain
     x_domain = linspace(0, L, j);
 end
+%%
+function [density, mach_number, pressure] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0)
+    % Initialization
+    [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR, rhoL, rhoR, gamma);
 
-function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0)
-    % (Equation 3.54)
+    % Define region intersects based on x values
+    int_L5 = x0 - aL * t; % Head of the expansion wave
+    int_53 = x0 - (aL - V * (gamma + 1) / 2) * t; % Tail of the expansion fan using correct characteristic speed
+    int_32 = x0 + V * t; % Contact surface
+    int_2R = x0 + C * t; % Shock wave
+
+    % Determine the state based on the position x
+    if x < int_L5
+        % Region L
+        [density, mach_number, pressure] = computeRegionL(rhoL, pL);
+    elseif x >= int_L5 && x < int_53
+        % Expansion Fan
+        [density, mach_number, pressure] = computeExpansionFan(x, x0, aL, pL, rhoL, gamma, t);
+    elseif x >= int_53 && x < int_32
+        % Region 3 - Post-Contact
+        [density, mach_number, pressure] = computePostContact(p2, rhoL, gamma, pL, V);
+    elseif x >= int_32 && x < int_2R
+        % Region 2 - Post-Shock
+        [density, mach_number, pressure] = computePostShock(P, pR, rhoR, gamma, V);
+    else
+        % Region R
+        [density, mach_number, pressure] = computeRegionR(rhoR, pR);
+    end
+end
+%%
+function [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR, rhoL, rhoR, gamma)
+    % Equation (3.54)
     alpha = (gamma + 1) / (gamma - 1); 
     
-    % Initial guess for pressure ratio P (Related to Section 3.3)
-    P_guess = [0.01 * pR/pL, pL/pR]; 
+    % Modify the initial guesses for pressure ratio P if necessary
+    % The interval for P must bracket the root, so we choose P_min and P_max
+    % to ensure that they are on opposite sides of the root.
+    P_min = pR / pL; % Minimum possible value for P (when the pressure ratio is 1:1)
+    P_max = pL / pR; % Maximum possible value for P (when all of the pressure from pL transfers to pR)
+    P_guess = [P_min, P_max]; % Updated guess interval
     
-    % Solve for the pressure ratio using a nonlinear solver
+    % Function handle for the pressure function
+    % This function is derived from the shock jump conditions and the isentropic
+    % flow relations for the expansion fan.
+    pressureFun = @(P) P_fun(P, pL, pR, aL, aR, gamma);
+    
+    % Checking if the interval truly brackets a root
+    if pressureFun(P_min) * pressureFun(P_max) >= 0
+        error('fzero cannot proceed: Function values at the interval endpoints must differ in sign.');
+    end
+    
+    % Solve for the pressure ratio P using a nonlinear solver
     options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
-    P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); 
-    p2 = P * pR; % Pressure behind the shock wave (post-shock pressure)
+    P = fzero(pressureFun, P_guess, options); 
     
-    % Since the pressure is continuous across the contact surface, p3 = p2.
-    p3 = p2;
-    
-    % Compute the density behind the shock using the isentropic relationship
-    rho2 = rhoR * ((gamma + 1) * P + (gamma - 1)) / ((gamma + 1) + (gamma - 1) * P); 
-    rho3 = rho2; % Since p3 = p2, rho3 = rho2 (post-shock density)
-    
-    % Compute the propagation speed of the contact surface
-    V = 2 * aL / (gamma - 1) * (1 - (p3 / pL)^((gamma - 1) / (2 * gamma)));
-    
-    % Compute the velocity behind the shock
-    u2 = V; % u2 is equal to V because the velocity is continuous across the contact surface
-    
-    % Compute the shock speed (C) using the corrected formula
-    C = (P - 1) * aR^2 / (gamma * u2); % Shock speed (Equation 3.58)
-    % Determine the locations of shock and contact discontinuity
-    x_shock = x0 + C * t; % Location of shock to the right of diaphragm (Section 3.3.2)
-    x_contact = x0 + V * t; % Location of contact discontinuity follows the shock (Section 3.3.2)
-    
-    % Calculate the head and tail of the expansion fan
-    x_head = x0 - aL * t; % Head of the expansion fan moves to the left
-    u5 = 2 / (gamma + 1) * ((x - x0)/t + aL);
-    x_tail = x0 - u5 * t; % Tail of the expansion fan moves to the left
-    
-    % Determine the state based on the x location
-    if x < x_head
-        % Region L: Original state to the left of the diaphragm
-        density = rhoL;
-        mach_number = 0; % Mach number in the original quiescent state
-    elseif x >= x_head && x <= x_tail
-        % Region 5: Within the expansion fan
-        [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma);
-    elseif x > x_tail && x <= x_contact
-        % Region 3: Between the tail of the expansion fan and contact discontinuity
-        density = rho3;
-        mach_number = u2 / aL; % Mach number using the local speed of sound aL
-        pressure = p3;
-    elseif x > x_contact && x <= x_shock
-        % Region 2: Between contact discontinuity and shock
-        density = rho2;
-        mach_number = u2 / aL; % Mach number using the local speed of sound aL
-        pressure = p2;
-    else
-        % Region R: Original state to the right of the diaphragm
-        density = rhoR;
-        mach_number = 0; % Mach number in the original quiescent state
-    end
-
-    % Output for debugging
-    disp(['x: ', num2str(x), ' t: ', num2str(t)]);
-    disp(['x_shock: ', num2str(x_shock), ' x_contact: ', num2str(x_contact)]);
-    disp(['x_head: ', num2str(x_head), ' x_tail: ', num2str(x_tail)]);
+    % Calculate p2, rho2, V, and C using the obtained pressure ratio P
+    % These are derived from the Rankine-Hugoniot relations and the conditions
+    % across the contact discontinuity.
+    p2 = P * pR; % Pressure behind the shock
+    p3 = p2; % Pressure is constant across the contact discontinuity
+    rho2 = rhoR * (alpha * P + 1) / (alpha + P); % Density behind the shock
+    rho3 = rhoL * (p3 / pL)^(1 / gamma); % Density using isentropic relation
+    V = 2 * aL / (gamma - 1) * (1 - (p3 / pL)^((gamma - 1) / (2 * gamma))); % Velocity behind the contact surface
+    C = (P - 1) * aR^2 / (gamma * V); % Shock speed (Equation 3.58)
 end
-
-function P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess)
-    % Constants for Newton's method
-    maxIter = 10000;      % Maximum number of iterations
-    tol = 1e-6;         % Tolerance for convergence
-    P = P_guess;        % Initial guess for P
-
-    for iter = 1:maxIter
-        F = P_fun(P, pL, pR, aL, aR, gamma);   % Evaluate function at current P
-        dF = dP_fun(P, pL, pR, aL, aR, gamma); % Evaluate derivative at current P
-
-        % Check if derivative is too close to zero
-        if abs(dF) < eps
-            error('Derivative too small, stopping iterations');
-        end
-        
-        % Newton-Raphson update
-        deltaP = F / dF;
-        
-        % Dynamic step size adjustment if the Newton step is too large
-        while abs(deltaP) > 0.5 * abs(P)
-            deltaP = deltaP / 2;
-        end
-        
-        P_new = P - deltaP;
-
-        % Check for convergence
-        if abs(F) < tol
-            P = P_new;
-            break;
-        end
-        
-        P = P_new; % Update P for the next iteration
-    end
-
-    % If Newton's method did not converge, throw an error
-    if iter == maxIter
-        error('Newton''s method did not converge within the maximum number of iterations');
-    end
-end
-
+%%
 function F = P_fun(P, pL, pR, aL, aR, gamma)
-    % Solves the implicit equation for pressure P across the shock (Equation 3.54 from textbook)
-    alpha = (gamma + 1) / (gamma - 1);  % Definition of alpha (Equation 3.54)
-    term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));  % Part of implicit equation for P (Equation 3.54)
-    term2 = (P - 1) / sqrt(1 + alpha * P);  % Part of implicit equation for P (Equation 3.54)
-    
-    % Ensure P/pR is positive to avoid complex numbers
-    if P / pR <= 0
-        error('P/pR must be positive to avoid complex results in P_fun.');
-    end
-    term3 = (pR / pL).^(1/(2 * gamma)) * (1 - (P / pR).^((gamma - 1) / (2 * gamma)));  % Part of implicit equation for P (Equation 3.54)
-    
-    F = term1 * term2 - term3;  % Implicit equation to be solved for P (Equation 3.54)
-end
-
-function dF = dP_fun(P, pL, pR, aL, aR, gamma)
-    % Derivative of the function P_fun with respect to P
+    % Implicit equation for pressure P across the shock
     alpha = (gamma + 1) / (gamma - 1);
-    term1 = sqrt((2 * gamma * (gamma - 1)) / (gamma + 1));
-    term2 = 1 ./ sqrt(1 + alpha * P);
-    term3 = (alpha / 2) * (P - 1) / ((1 + alpha * P).^(3 / 2));
+    term1 = sqrt(2 / (gamma * (gamma - 1))) * (P - 1) / sqrt(1 + alpha * P);
+    term2 = (2 / (gamma - 1)) * sqrt(aL / aR);
+    term3 = (1 - (pR * P / pL)^((gamma - 1) / (2 * gamma)));
 
-    % Ensure P/pR is positive to avoid complex numbers
-    if P / pR <= 0
-        error('P/pR must be positive to avoid complex results in dP_fun.');
-    end
-    term4 = (pR / pL)^(1 / (2 * gamma));
-    term5 = ((gamma - 1) / (2 * gamma)) * (P / pR).^((-1 + gamma) / (2 * gamma));
-    
-    % Calculate derivative using the power rule
-    dP_dTerm3 = -(pR / pL)^(1 / (2 * gamma)) * ((gamma - 1) / (2 * gamma)) * ...
-                (P / pR).^((-1 - gamma) / (2 * gamma)) / pR;
-    
-    dF = term1 * (term2 - term3) - term4 * dP_dTerm3;
+    F = term1 - term2 * term3;
 end
+%%
+function [density, mach_number, pressure] = computeRegionL(rhoL, pL)
+        density = rhoL;
+        mach_number = 0;
+        pressure = pL;
+end
+%%
+function [density, mach_number, pressure] = computeExpansionFan(x, x0, aL, pL, rhoL, gamma, t)
+    % Compute the local speed of sound within the expansion fan
+    u5 = (2 / (gamma + 1)) * ((x - x0) / t + aL);
+    a5 = aL - ((gamma - 1) / 2) * u5;
 
-function [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma)
-    % Computes the state within the expansion fan (Section 3.3.2 and Equations 3.40-3.42)
-    u5 = 2 / (gamma + 1) * (aL + (x - x0) / t);  % Velocity within the expansion fan (Derived from Equations 3.40-3.42)
-    a5 = u5 - (x - x0) / t;  % Sound speed within the expansion fan (Derived from Equations 3.40-3.42)
-    p5 = pL * (a5 / aL)^(2 * gamma / (gamma - 1)); % Pressure within the expansion fan (Derived from Equations 3.40-3.42)
-    rho5 = gamma * p5 / a5^2; % Density within the expansion fan (Derived from Equations 3.40-3.42)
+    % Compute the pressure within the expansion fan
+    p5 = pL * (a5 / aL)^(2 * gamma / (gamma - 1));
+
+    % Compute the density within the expansion fan
+    rho5 = rhoL * (p5 / pL)^(1 / gamma);
+
+    % Compute the Mach number within the expansion fan
+    M5 = u5 / a5;
+
+    % Assign outputs to the function
     density = rho5;
-    velocity = u5;
-    mach_number = velocity / a5; % Mach number within the expansion fan (Derived from Equations 3.40-3.42)
+    mach_number = M5;
     pressure = p5;
 end
-
-function [density, mach_number, pressure] = compute_contact_discontinuity(pL, pR, rhoL, rhoR, gamma, P, V, x_tail, t, x0, aL)
-    % Correct computation of pressure in Region 3
-    pressure = P * pR; % Pressure in Region 3 should match that of Region 2
+%%
+function [density, mach_number, pressure] = computePostContact(p2, rhoL, gamma, pL, V)
+    % The pressure behind the contact surface is the same as the pressure p2
+    % from the post-shock region, and since the flow is isentropic, the density
+    % changes according to isentropic relations.
+    pressure = p2;
     
-    % Correct computation of density in Region 3 using isentropic relation
+    % Calculate the density using isentropic relations, since the entropy to
+    % the left of the contact surface is equal to that of the original
+    % quiescent left state.
     density = rhoL * (pressure / pL)^(1 / gamma);
     
-    % Velocity in Region 3 is the same as that in Region 2, which is V
-    velocity = V;  % Constant across the contact discontinuity
-    
-    % Recalculate the local speed of sound in Region 3 using the updated pressure and density
-    a3 = sqrt(gamma * pressure / density);
-    
-    % Calculation of the Mach number using the velocity and local speed of sound in Region 3
-    mach_number = velocity / a3;
-    
-    % Debugging output
-    disp(['Region 3 - Contact Discontinuity: Pressure = ', num2str(pressure), ...
-          ', Density = ', num2str(density), ', Velocity = ', num2str(velocity), ...
-          ', Mach Number = ', num2str(mach_number), ...
-          ', Speed of Sound = ', num2str(a3)]);
+    % The velocity V is the same across the contact discontinuity and is
+    % equal to the speed of the contact surface.
+    mach_number = V / (sqrt(gamma * pressure / density)); % Mach number using the speed of sound after the contact surface
 end
-
-function [density, mach_number, pressure] = compute_shocked_region(pR, rhoR, gamma, P, C, aL)
-    % Rankine-Hugoniot conditions to calculate post-shock state
-    % Refer to the Rankine-Hugoniot conditions in Section 3.3.2 for the theoretical background
+%%
+function [density, mach_number, pressure] = computePostShock(P, pR, rhoR, gamma, V)
+    % This function computes the flow properties in region 2, which is 
+    % immediately behind the shock wave and is governed by the Rankine-Hugoniot 
+    % relations due to the shock.
     
-    % Calculate post-shock pressure using the pressure ratio P from the implicit equation (3.54)
-    pressure = P * pR; % Post-shock pressure (Equation 3.50 in the provided text)
+    % Pressure behind the shock is P times the right pressure (pR).
+    pressure = P * pR;
     
-    % Calculate post-shock density using equation (3.55) from the provided text
-    % This equation is derived from the Rankine-Hugoniot relations
-    density = rhoR * ((gamma + 1) * P + (gamma - 1)) / ((gamma + 1) + (gamma - 1) * P); % Post-shock density (Equation 3.55)
+    % Density behind the shock (rho2) calculated using the shock pressure ratio (P).
+    alpha = (gamma + 1) / (gamma - 1);
+    density = rhoR * (alpha * P + 1) / (alpha + P);
     
-    % Calculate post-shock velocity using equation (3.58) from the provided text
-    % The equation relates the shock speed C to the particle velocity behind the shock
-    velocity = (P - 1) * C / (gamma * sqrt((gamma + 1) * P + (gamma - 1))); % Post-shock velocity (Equation 3.58)
-    mach_number = velocity / aL; % Mach number using the local speed of sound aL (Equation 3.58 and Mach number definition)
+    % Mach number behind the shock is the velocity divided by the speed of sound in region 2.
+    mach_number = V / sqrt(gamma * pressure / density);
 end
-
-function plotResults(x, M, rho)
+%%
+function [density, mach_number, pressure] = computeRegionR(rhoR, pR)
+        density = rhoR;
+        mach_number = 0;
+        pressure = pR;
+end
+%%
+function plotResults(x, rho, M, P)
     close all;
     % This function plots the density and Mach number profiles
     % The figure setup is based on the layout of Fig. 3.3 from the textbook
     
     figure('Name', 'Shock Tube Problem Results');
+
     subplot(2, 1, 1);
     plot(x, rho, 'Color', 'k');
     title('Density (in Kg/m^3)'); % Title based on Fig. 3.3a in the textbook
@@ -253,6 +195,7 @@ function plotResults(x, M, rho)
     ylabel('\rho', 'Interpreter', 'tex'); % y-axis label using LaTeX formatting as in the textbook
     ylim([0 1.1]); % y-axis limits based on expected range of density values
     yticks(0:.2:1); % y-axis ticks setting for density plot
+
     subplot(2, 1, 2);
     plot(x, M, 'Color', 'k');
     title('Mach Number'); % Title based on Fig. 3.3b in the textbook
@@ -262,6 +205,8 @@ function plotResults(x, M, rho)
     ylim([0 1]); % y-axis limits based on expected range of Mach number values
     yticks(0:.1:1); % y-axis ticks setting for Mach number plot
     
+    %disp(P);
+    
     % Adjust figure window size and position on screen
     screen_size = get(0, 'ScreenSize');
     fig_width = 400;
@@ -270,6 +215,5 @@ function plotResults(x, M, rho)
     fig_y = (screen_size(4) - fig_height) / 2; 
     set(gcf, 'Position', [fig_x, fig_y, fig_width, fig_height]);
 end
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
