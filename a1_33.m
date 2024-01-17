@@ -52,42 +52,60 @@ function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gam
     % Initial guess for pressure ratio P (Related to Section 3.3)
     P_guess = [0.01 * pR/pL, pL/pR]; 
     
-    options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
     % Solve for the pressure ratio using a nonlinear solver
-    P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); % Pressure ratio across the shock (Equation 3.54)
-    %P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess);
+    options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
+    P = fzero(@(P) P_fun(P, pL, pR, aL, aR, gamma), P_guess, options); 
+    p2 = P * pR; % Pressure behind the shock wave (post-shock pressure)
     
-    % Calculate the shock speed (C) and contact discontinuity speed (V)
-    C = aR * sqrt((gamma + 1)/(2*gamma) * P + (gamma - 1)/(2*gamma)); % Shock speed (Equation 3.58)
-    V = 2 * aL / (gamma + 1) * (sqrt(2*gamma/(gamma + 1) * P + (gamma - 1)/(gamma + 1)) - 1); % Speed of contact discontinuity (Equation 3.56)
+    % Since the pressure is continuous across the contact surface, p3 = p2.
+    p3 = p2;
     
+    % Compute the density behind the shock using the isentropic relationship
+    rho2 = rhoR * ((gamma + 1) * P + (gamma - 1)) / ((gamma + 1) + (gamma - 1) * P); 
+    rho3 = rho2; % Since p3 = p2, rho3 = rho2 (post-shock density)
+    
+    % Compute the propagation speed of the contact surface
+    V = 2 * aL / (gamma - 1) * (1 - (p3 / pL)^((gamma - 1) / (2 * gamma)));
+    
+    % Compute the velocity behind the shock
+    u2 = V; % u2 is equal to V because the velocity is continuous across the contact surface
+    
+    % Compute the shock speed (C) using the corrected formula
+    C = (P - 1) * aR^2 / (gamma * u2); % Shock speed (Equation 3.58)
     % Determine the locations of shock and contact discontinuity
-    x_shock = x0 + C * t;  % Location of shock to the right of diaphragm (Section 3.3.2)
+    x_shock = x0 + C * t; % Location of shock to the right of diaphragm (Section 3.3.2)
     x_contact = x0 + V * t; % Location of contact discontinuity follows the shock (Section 3.3.2)
     
     % Calculate the head and tail of the expansion fan
-    % Calculate the head of the expansion fan
-    x_head = x0 - aL * t;  % Head of the expansion fan moves to the left
-
-    % Calculate the tail of the expansion fan using the correct formula
-    u5 = aL - ((gamma + 1) / 2) * V;
-    x_tail = x0 - u5 * t;  % Tail of the expansion fan moves to the left
+    x_head = x0 - aL * t; % Head of the expansion fan moves to the left
+    u5 = 2 / (gamma + 1) * ((x - x0)/t + aL);
+    x_tail = x0 - u5 * t; % Tail of the expansion fan moves to the left
     
     % Determine the state based on the x location
-    if x < x_head % Region L: Original state to the left of the diaphragm (Equation 3.43)
+    if x < x_head
+        % Region L: Original state to the left of the diaphragm
         density = rhoL;
         mach_number = 0; % Mach number in the original quiescent state
-    elseif x >= x_head && x <= x_tail % Region 5: Within the expansion fan (Equation 3.40-3.42)
+    elseif x >= x_head && x <= x_tail
+        % Region 5: Within the expansion fan
         [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma);
-    elseif x > x_tail && x <= x_contact % Region 3: Between the tail of the expansion fan and contact discontinuity (Derived from Section 3.3.2)
-        [density, mach_number, pressure] = compute_contact_discontinuity(pL, pR, rhoL, rhoR, gamma, P, V, x_tail, t, x0, aL);
-    elseif x > x_contact && x <= x_shock % Region 2: Between contact discontinuity and shock (Derived from Section 3.3.2)
-        [density, mach_number, pressure] = compute_shocked_region(pR, rhoR, gamma, P, C, aL);
-    else % Region R: Original state to the right of the diaphragm (Equation 3.44)
+    elseif x > x_tail && x <= x_contact
+        % Region 3: Between the tail of the expansion fan and contact discontinuity
+        density = rho3;
+        mach_number = u2 / aL; % Mach number using the local speed of sound aL
+        pressure = p3;
+    elseif x > x_contact && x <= x_shock
+        % Region 2: Between contact discontinuity and shock
+        density = rho2;
+        mach_number = u2 / aL; % Mach number using the local speed of sound aL
+        pressure = p2;
+    else
+        % Region R: Original state to the right of the diaphragm
         density = rhoR;
         mach_number = 0; % Mach number in the original quiescent state
     end
-    % Debugging output
+
+    % Output for debugging
     disp(['x: ', num2str(x), ' t: ', num2str(t)]);
     disp(['x_shock: ', num2str(x_shock), ' x_contact: ', num2str(x_contact)]);
     disp(['x_head: ', num2str(x_head), ' x_tail: ', num2str(x_tail)]);
@@ -172,9 +190,9 @@ end
 function [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, pL, rhoL, gamma)
     % Computes the state within the expansion fan (Section 3.3.2 and Equations 3.40-3.42)
     u5 = 2 / (gamma + 1) * (aL + (x - x0) / t);  % Velocity within the expansion fan (Derived from Equations 3.40-3.42)
-    a5 = aL - (gamma - 1) * u5 / 2;  % Sound speed within the expansion fan (Derived from Equations 3.40-3.42)
+    a5 = u5 - (x - x0) / t;  % Sound speed within the expansion fan (Derived from Equations 3.40-3.42)
     p5 = pL * (a5 / aL)^(2 * gamma / (gamma - 1)); % Pressure within the expansion fan (Derived from Equations 3.40-3.42)
-    rho5 = rhoL * (p5 / pL)^(1 / gamma); % Density within the expansion fan (Derived from Equations 3.40-3.42)
+    rho5 = gamma * p5 / a5^2; % Density within the expansion fan (Derived from Equations 3.40-3.42)
     density = rho5;
     velocity = u5;
     mach_number = velocity / a5; % Mach number within the expansion fan (Derived from Equations 3.40-3.42)
