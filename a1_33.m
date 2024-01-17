@@ -15,15 +15,12 @@ function shockTubeProblem()
 
     % 1. Problem and geometry specification
     [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem();
-    [L, x0] = specifyGeometry();
+    [x0, x_domain] = specifyGeometry();
 
-    % 2. Mesh Generation
-    x_domain = generateMesh(L);
+    % 2. Exact solution of governing equations
+    [density, mach_number] = arrayfun(@(x) getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0), x_domain);
 
-    % 3. Exact solution of governing equations
-    [density, mach_number] = solveGoverningEquations(x_domain, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0);
-
-    % 4. Post-processing, assessment, and interpretation of results
+    % 3. Post-processing, assessment, and interpretation of results
     plotResults(x_domain, mach_number, density);
 end
 
@@ -37,23 +34,15 @@ function [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem()
     [aL, aR] = deal(sqrt(gamma * pL / rhoL), sqrt(gamma * pR / rhoR)); 
 end
 
-function [L, x0] = specifyGeometry()
+function [x0, x_domain] = specifyGeometry()
     % Length of the shock tube
     L = 10;
     % Assumed initial location of the diaphragm
     x0 = 5;
-end
-
-function x_domain = generateMesh(L)
     % Number of points for discretizing the domain
     j = 1000; 
     % Spatial domain
-    x_domain = linspace(0, L, j); 
-end
-
-function [density, mach_number] = solveGoverningEquations(x_domain, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0)
-    % Compute the solution across the domain using getState
-    [density, mach_number] = arrayfun(@(x) getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0), x_domain);
+    x_domain = linspace(0, L, j);
 end
 
 function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gamma, x0)
@@ -77,8 +66,12 @@ function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gam
     x_contact = x0 + V * t; % Location of contact discontinuity follows the shock (Section 3.3.2)
     
     % Calculate the head and tail of the expansion fan
-    x_head = x0 - aL * t;  % Head of the expansion fan (Section 3.3.2)
-    x_tail = x0 - (aL - V*(gamma + 1)/2) * t;  % Tail of the expansion fan (Section 3.3.2)
+    % Calculate the head of the expansion fan
+    x_head = x0 - aL * t;  % Head of the expansion fan moves to the left
+
+    % Calculate the tail of the expansion fan using the correct formula
+    u5 = aL - ((gamma + 1) / 2) * V;
+    x_tail = x0 - u5 * t;  % Tail of the expansion fan moves to the left
     
     % Determine the state based on the x location
     if x < x_head % Region L: Original state to the left of the diaphragm (Equation 3.43)
@@ -94,6 +87,10 @@ function [density, mach_number] = getState(x, t, pL, pR, rhoL, rhoR, aL, aR, gam
         density = rhoR;
         mach_number = 0; % Mach number in the original quiescent state
     end
+    % Debugging output
+    disp(['x: ', num2str(x), ' t: ', num2str(t)]);
+    disp(['x_shock: ', num2str(x_shock), ' x_contact: ', num2str(x_contact)]);
+    disp(['x_head: ', num2str(x_head), ' x_tail: ', num2str(x_tail)]);
 end
 
 function P = newtonsMethod(pL, pR, aL, aR, gamma, P_guess)
@@ -185,13 +182,26 @@ function [density, mach_number, pressure] = compute_expansion_fan(x, t, x0, aL, 
 end
 
 function [density, mach_number, pressure] = compute_contact_discontinuity(pL, pR, rhoL, rhoR, gamma, P, V, x_tail, t, x0, aL)
-    % Computes the state just behind the contact discontinuity (Region 3)
-    % Using pressure at the tail of the expansion fan (p_tail)
-    p_tail = pL * ((2/(gamma + 1)) - (gamma - 1)/(aL * gamma * t) * (x_tail - x0))^((2 * gamma)/(gamma - 1));
-    density = rhoL * (p_tail / pL)^(1 / gamma);  
-    velocity = V;  
-    mach_number = velocity / sqrt(gamma * p_tail / density);  
-    pressure = p_tail;  
+    % Correct computation of pressure in Region 3
+    pressure = P * pR; % Pressure in Region 3 should match that of Region 2
+    
+    % Correct computation of density in Region 3 using isentropic relation
+    density = rhoL * (pressure / pL)^(1 / gamma);
+    
+    % Velocity in Region 3 is the same as that in Region 2, which is V
+    velocity = V;  % Constant across the contact discontinuity
+    
+    % Recalculate the local speed of sound in Region 3 using the updated pressure and density
+    a3 = sqrt(gamma * pressure / density);
+    
+    % Calculation of the Mach number using the velocity and local speed of sound in Region 3
+    mach_number = velocity / a3;
+    
+    % Debugging output
+    disp(['Region 3 - Contact Discontinuity: Pressure = ', num2str(pressure), ...
+          ', Density = ', num2str(density), ', Velocity = ', num2str(velocity), ...
+          ', Mach Number = ', num2str(mach_number), ...
+          ', Speed of Sound = ', num2str(a3)]);
 end
 
 function [density, mach_number, pressure] = compute_shocked_region(pR, rhoR, gamma, P, C, aL)
