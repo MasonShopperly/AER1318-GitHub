@@ -47,7 +47,7 @@ function [density, mach_number, pressure] = getState(x, t, pL, pR, rhoL, rhoR, a
 
     % Define region intersects based on x values
     int_L5 = x0 - aL * t; % Head of the expansion wave
-    int_53 = x0 - (aL - V * (gamma + 1) / 2) * t; % Tail of the expansion fan using correct characteristic speed
+    int_53 = x0 + (V * (gamma + 1) / 2 - aL) * t; % Tail of the expansion fan using correct characteristic speed
     int_32 = x0 + V * t; % Contact surface
     int_2R = x0 + C * t; % Shock wave
 
@@ -70,10 +70,7 @@ function [density, mach_number, pressure] = getState(x, t, pL, pR, rhoL, rhoR, a
     end
 end
 %%
-function [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR, rhoL, rhoR, gamma)
-    % Equation (3.54)
-    alpha = (gamma + 1) / (gamma - 1); 
-    
+function [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR, rhoL, rhoR, gamma)   
     % Modify the initial guesses for pressure ratio P if necessary
     % The interval for P must bracket the root, so we choose P_min and P_max
     % to ensure that they are on opposite sides of the root.
@@ -94,15 +91,16 @@ function [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR
     % Solve for the pressure ratio P using a nonlinear solver
     options = optimset('TolX', 1e-9, 'TolFun', 1e-9);
     P = fzero(pressureFun, P_guess, options); 
-    
+
     % Calculate p2, rho2, V, and C using the obtained pressure ratio P
     % These are derived from the Rankine-Hugoniot relations and the conditions
     % across the contact discontinuity.
+    alpha = (gamma + 1) / (gamma - 1); 
     p2 = P * pR; % Pressure behind the shock
+    rho2 = rhoR * (1 + alpha * P) / (alpha + P); % Density behind the shock
     p3 = p2; % Pressure is constant across the contact discontinuity
-    rho2 = rhoR * (alpha * P + 1) / (alpha + P); % Density behind the shock
-    rho3 = rhoL * (p3 / pL)^(1 / gamma); % Density using isentropic relation
     V = 2 * aL / (gamma - 1) * (1 - (p3 / pL)^((gamma - 1) / (2 * gamma))); % Velocity behind the contact surface
+    rho3 = rhoL * (p3 / pL)^(1 / gamma); % Density using isentropic relation
     C = (P - 1) * aR^2 / (gamma * V); % Shock speed (Equation 3.58)
 end
 %%
@@ -110,7 +108,7 @@ function F = P_fun(P, pL, pR, aL, aR, gamma)
     % Implicit equation for pressure P across the shock
     alpha = (gamma + 1) / (gamma - 1);
     term1 = sqrt(2 / (gamma * (gamma - 1))) * (P - 1) / sqrt(1 + alpha * P);
-    term2 = (2 / (gamma - 1)) * sqrt(aL / aR);
+    term2 = (2 / (gamma - 1)) * (aL / aR);
     term3 = (1 - (pR * P / pL)^((gamma - 1) / (2 * gamma)));
 
     F = term1 - term2 * term3;
@@ -205,7 +203,13 @@ function plotResults(x, rho, M, P)
     ylim([0 1]); % y-axis limits based on expected range of Mach number values
     yticks(0:.1:1); % y-axis ticks setting for Mach number plot
     
-    %disp(P);
+    % subplot(3, 1, 3);
+    % plot(x, P, 'Color', 'k');
+    % title('Pressure'); % Title based on Fig. 3.3b in the textbook
+    % xlabel('x '); % x-axis label as per standard convention
+    % xlim([0 10]); % x-axis limits as per the domain specified in the textbook's example
+    % ylabel('P'); % y-axis label for Mach number
+    % ylim([1e4 1.1e5]); % y-axis limits based on expected range of Mach number values
     
     % Adjust figure window size and position on screen
     screen_size = get(0, 'ScreenSize');
