@@ -1,12 +1,206 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Mason Shopperly
-% AER1318H W Topics in Computational Fluid Dynamics
-% Filename: a1_33.m
-% Description: Mainline to determine the exact solution of the
-% shock-tube problem specified in exercise 3.3.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function a1_33(~, ~)
+function AER1318_Analytical_Solution_Tool()
+    % Create a figure for the GUI
+    fig = figure('Name', 'AER1318 Analytical Solution Tool', ...
+                 'NumberTitle', 'off', ...
+                 'Position', [50, 550, 350, 200]); % Adjust the position to accommodate new button
+
+    % Button for Exercise 3.1
+    uicontrol('Style', 'pushbutton', 'String', 'Exercise 3.1', ...
+              'Position', [50, 150, 250, 30], ...
+              'Callback', @runExercise31);
+
+    % Button for Exercise 3.2
+    uicontrol('Style', 'pushbutton', 'String', 'Exercise 3.2', ...
+              'Position', [50,110, 250, 30], ...
+              'Callback', @runExercise32);
+
+    % Button for Exercise 3.3
+    uicontrol('Style', 'pushbutton', 'String', 'Exercise 3.3', ...
+              'Position', [50, 70, 250, 30], ...
+              'Callback', @runExercise33);
+
+    % Button to Reset Plots
+    uicontrol('Style', 'pushbutton', 'String', 'Reset Plots', ...
+              'Position', [50, 30, 250, 30], ...
+              'Callback', @resetPlots);
+
+    function resetPlots(~, ~)
+        % Close all figures except the GUI
+        figs = findall(groot, 'Type', 'figure');
+        gui_fig = gcf; % Assuming the current figure is the GUI
+        close(setdiff(figs, gui_fig));
+    end
+end
+
+%%
+function runExercise31(~, ~)
+    clc;
+    [gamma, R, T01, p01, S_star] = defineConstants31();
+    [j, x] = generateGrid31();
+    S = defineAreaFunction31();
+    M = solveMachDistribution31(gamma, S, S_star, x);
+    [T, p] = calculateDistributions31(M, gamma, T01, p01);
+    plotResults31(x, M, p);
+    %%
+    function [gamma, R, T01, p01, S_star] = defineConstants31()
+        gamma = 1.4; % Specific heat ratio
+        R = 287; % Universal gas constant [J/(kg*K)]
+        T01 = 300; % Total inlet temperature [K]
+        p01 = 100e3; % Total inlet pressure [Pa]
+        S_star = 0.8; % Critical area for subsonic flow
+    end
+    %%
+    function [j, x] = generateGrid31()
+        j = 100;
+        Ll = 0;
+        Lr = 10;
+        x = linspace(Ll, Lr, j);
+    end
+    %%
+    function S = defineAreaFunction31()
+        S = @(x) (x >= 0 & x <= 5) .* (1 + 1.5 * (1 - x/5).^2) + ...
+                 (x > 5 & x <= 10) .* (1 + 0.5 * (1 - x/5).^2);
+    end
+    %%
+    function [f, df] = areaMachFunction31(M, gamma, Sx, S_star)
+        % Calculate the area ratio and its derivative with respect to M
+        area_ratio = (1./M) .* ((2/(gamma + 1)) .* (1 + (gamma - 1)/2 .* M.^2)).^((gamma + 1)/(2*(gamma - 1)));
+        f = area_ratio - Sx/S_star;
+        df = -((gamma + 1)./(2.*(gamma - 1))) .* (1./M.^2) .* ((2./(gamma + 1)) .* (1 + (gamma - 1)/2 .* M.^2)).^((gamma + 1)/(2*(gamma - 1)) - 1) .* ...
+             ((2./(gamma + 1)) .* (gamma - 1) .* M);
+    end
+    %%
+    function M = solveMachDistribution31(gamma, S, S_star, x)
+        M = zeros(size(x)); % Initialize Mach number array
+        M(:) = 0.5; % Initial guess for Mach number (subsonic)
+        options = optimoptions('fsolve', 'Display', 'off', 'TolFun', 1e-6);
+        for i = 1:length(x)
+            M(i) = fsolve(@(M) areaMachFunction31(M, gamma, S(x(i)), S_star), M(i), options);
+        end
+    end
+    %%
+    function [T, p] = calculateDistributions31(M, gamma, T01, p01)
+        T = T01 ./ (1 + (gamma - 1)/2 .* M.^2);
+        p = p01 * (1 + (gamma - 1)/2 .* M.^2).^(-gamma/(gamma - 1));
+    end
+    %%
+    function plotResults31(x, M, p)
+        figure('name', 'Exact solution for the subsonic channel flow problem');
+        subplot(2, 1, 1);
+        plot(x, p/1000, 'Color', 'k');
+        title('Pressure');
+        xlabel('x');
+        ylabel('p [kPa]');
+        yticks(80:2:98);
+        ylim([80 98]);
+    
+        subplot(2, 1, 2);
+        plot(x, M, 'Color', 'k');
+        title('Mach Number');
+        xlabel('x');
+        ylabel('M');
+        yticks(0.2:.05:.65);
+        ylim([0.15 0.65]);
+    
+        % Set figure position to be centered from top to bottom of the screen
+        screen_size = get(0, 'ScreenSize'); % Get the screen size
+        fig_width = 400;
+        fig_height = 700;
+        fig_x = (screen_size(3) - fig_width) / 2; % Horizontally centered
+        fig_y = (screen_size(4) - fig_height) / 2; % Vertically centered
+        set(gcf, 'Position', [fig_x, fig_y, fig_width, fig_height]);
+    end
+end
+%%
+function runExercise32(~, ~)
+    clc;
+    [gamma, R, T01, p01, S_star, x_shock, j, x] = setupSimulation32();
+    S = defineAreaFunction32();
+    [M, M_post_shock] = initializeMachNumber32(j, x, gamma);
+    [M, p] = solveTransonicFlow32(gamma, S, S_star, x, M, p01);
+    plotResults32(x, M, p);
+    %%
+    function [gamma, R, T01, p01, S_star, x_shock, j, x] = setupSimulation32()
+        gamma = 1.4; % Specific heat ratio
+        R = 287; % Universal gas constant [J/(kg*K)]
+        T01 = 300; % Total inlet temperature [K]
+        p01 = 100e3; % Total inlet pressure [Pa]
+        S_star = 1; % Critical area
+        x_shock = 7; % Shock location
+        j = 1000; % Number of grid points
+        x = linspace(0, 10, j); % Grid space
+    end
+    %%
+    function S = defineAreaFunction32()
+        S = @(x) (x >= 0 & x <= 5) .* (1 + 1.5 * (1 - x/5).^2) + ...
+                 (x > 5 & x <= 10) .* (1 + 0.5 * (1 - x/5).^2);
+    end
+    %%
+    function [M, M_post_shock] = initializeMachNumber32(j, x, gamma)
+        M = zeros(1, j);
+        M_post_shock = NaN; 
+        for i = 1:j
+            if x(i) < 5
+                % Use a subsonic guess before the shock
+                M(i) = 0.5; 
+            elseif x(i) >= 5 && x(i) < 7
+                % Use a supersonic guess before the shock
+                M(i) = 1.2;
+            else
+                % If shock has been passed, use Rankine-Hugoniot relations for post-shock Mach number
+                if isnan(M_post_shock)
+                    M_post_shock = calculatePostShockMach32(M(i-1), gamma);
+                end
+                % Use a subsonic guess after the shock
+                M(i) = 0.6;
+            end
+        end
+    end
+    %%
+    function [M, p] = solveTransonicFlow32(gamma, S, S_star, x, M, p01)
+        % Solve for Mach number distribution and calculate pressure
+        options = optimoptions('fsolve', 'Display', 'off', 'TolFun', 1e-6);
+        for i = 1:length(x)
+            % Iteratively solve for Mach number using fsolve
+            M(i) = fsolve(@(M) areaMachRelation32(M, gamma, S(x(i)), S_star), M(i), options);
+            % Calculate pressure using isentropic relations
+            p(i) = p01 * (1 + 0.5 * (gamma - 1) * M(i)^2)^(-gamma/(gamma-1));
+        end
+    end
+    %%
+    function F = areaMachRelation32(M, gamma, Sx, S_star)
+        % Correct implementation of Equation 3.45
+        F = (Sx/S_star) - (1/M) * ((2/(gamma + 1)) * (1 + (gamma - 1)/2 * M^2))^((gamma + 1)/(2*(gamma - 1)));
+    end
+    %%
+    function M_post_shock = calculatePostShockMach32(M_pre_shock, gamma)
+        % Correct implementation of Rankine-Hugoniot relations (Equation 3.49)
+        M_post_shock = sqrt((1 + (gamma - 1)/2 * M_pre_shock^2) / (gamma * M_pre_shock^2 - (gamma - 1)/2));
+    end
+    %%
+    function plotResults32(x, M, p)
+        figure;
+        subplot(2, 1, 1);
+        plot(x, p, 'Color', 'k');
+        title('Pressure');
+        xlabel('x');
+        ylabel('p [Pa]');
+        subplot(2, 1, 2);
+        plot(x, M, 'Color', 'k');
+        title('Mach Number');
+        xlabel('x ');
+        ylabel('M');
+        ylim([.2 1.6]);
+        screen_size = get(0, 'ScreenSize');
+        fig_width = 400;
+        fig_height = 700;
+        fig_x = (screen_size(3) - fig_width) / 2;
+        fig_y = (screen_size(4) - fig_height) / 2; 
+        set(gcf, 'Position', [fig_x, fig_y, fig_width, fig_height]);
+    end
+end
+%%
+function runExercise33(~, ~)
     clc;
     % 1. Problem & geometry specification
     [gamma, pL, pR, rhoL, rhoR, aL, aR, t] = specifyProblem();
@@ -248,5 +442,4 @@ function a1_33(~, ~)
         set(gcf, 'Position', [fig_x, fig_y, fig_width, fig_height]);
     end
 end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
