@@ -98,30 +98,6 @@ function [P, V, C, rho3, rho2, p2] = computeShockAndContactSpeeds(pL, pR, aL, aR
     rho3 = rhoL * (p3 / pL).^(1 / gamma); % Density using isentropic relation
     C = (P - 1) * aR^2 / (gamma * V); % Shock speed (Equation 3.58)
 end
-%%
-function F = P_fun(P, pL, pR, aL, aR, gamma)
-    % Implicit equation for pressure P across the shock
-    alpha = (gamma + 1) / (gamma - 1);
-    term1 = sqrt(2 / (gamma * (gamma - 1))) * (P - 1) / sqrt(1 + alpha * P);
-    term2 = (2 / (gamma - 1)) * (aL / aR);
-    term3 = (1 - (pR * P / pL).^((gamma - 1) / (2 * gamma)));
-
-    F = term1 - term2 * term3;
-end
-%%
-function F = dP_fun(P, pL, pR, aL, aR, gamma)
-    alpha = (gamma + 1) / (gamma - 1);
-
-    % Derivative of term1 with respect to P
-    dterm1 = sqrt(2 / (gamma * (gamma - 1))) * (1 ./ sqrt(1 + alpha * P) - (P - 1) * alpha ./ (2 * (1 + alpha * P).^(3/2)));
-
-    % Derivative of term3 with respect to P
-    dterm3 = -pR / pL * ((gamma - 1) / (2 * gamma)) * (pR * P / pL).^((gamma - 1) / (2 * gamma) - 1);
-
-    % The derivative of F with respect to P
-    F = dterm1 - (2 / (gamma - 1)) * (aL / aR) * dterm3;
-end
-%%
 function P = newtonsMethod(fun, dPFun, initialGuess, tol, maxIter)
     P = initialGuess;
     for iter = 1:maxIter
@@ -148,6 +124,30 @@ function P = newtonsMethod(fun, dPFun, initialGuess, tol, maxIter)
     if iter == maxIter
         error('Newton''s method did not converge within the maximum number of iterations');
     end
+end
+
+function F = dP_fun(P, pL, pR, aL, aR, gamma)
+    alpha = (gamma + 1) / (gamma - 1);
+
+    % Derivative of term1 with respect to P
+    dterm1 = sqrt(2 / (gamma * (gamma - 1))) * (1 ./ sqrt(1 + alpha * P) - (P - 1) * alpha ./ (2 * (1 + alpha * P).^(3/2)));
+
+    % Derivative of term3 with respect to P
+    dterm3 = -pR / pL * ((gamma - 1) / (2 * gamma)) * (pR * P / pL).^((gamma - 1) / (2 * gamma) - 1);
+
+    % The derivative of F with respect to P
+    F = dterm1 - (2 / (gamma - 1)) * (aL / aR) * dterm3;
+end
+
+%%
+function F = P_fun(P, pL, pR, aL, aR, gamma)
+    % Implicit equation for pressure P across the shock
+    alpha = (gamma + 1) / (gamma - 1);
+    term1 = sqrt(2 / (gamma * (gamma - 1))) * (P - 1) / sqrt(1 + alpha * P);
+    term2 = (2 / (gamma - 1)) * (aL / aR);
+    term3 = (1 - (pR * P / pL).^((gamma - 1) / (2 * gamma)));
+
+    F = term1 - term2 * term3;
 end
 %%
 function [density, mach_number, pressure] = computeRegionL(rhoL, pL)
