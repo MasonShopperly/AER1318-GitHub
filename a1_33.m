@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Mason Shopperly
-% AER1318H W Topics in Computational Fluid Dynamics
+% AER1318H S Topics in Computational Fluid Dynamics
 % Filename: a1_33.m
 % Description: Mainline to determine the exact solution of the
 % shock-tube problem specified in exercise 3.3.
@@ -52,14 +52,14 @@ function a1_33(~, ~)
             % Expansion Fan
             [density, mach_number, pressure] = computeExpansionFan(x, x0, aL, pL, rhoL, gamma, t);
         elseif x >= int_53 && x < int_32
-            % Region 3 - Post-Contact
-            [density, mach_number, pressure] = computePostContact(p2, rhoL, gamma, pL, V);
+            % Region 3
+            [density, mach_number, pressure] = computeRegion3(p2, rhoL, gamma, pL, V);
         elseif x >= int_32 && x < int_2R
-            % Region 2 - Post-Shock
-            [density, mach_number, pressure] = computePostShock(P, pR, rhoR, gamma, V);
+            % Region 2 - Post-Contact
+            [density, mach_number, pressure] = computePostContact(P, pR, rhoR, gamma, V);
         else
-            % Region R
-            [density, mach_number, pressure] = computeRegionR(rhoR, pR);
+            % Region R - Post-Shock
+            [density, mach_number, pressure] = computePostShock(rhoR, pR);
         end
     end
     %%
@@ -78,7 +78,7 @@ function a1_33(~, ~)
         dPFun = @(P) dP_fun(P, pL, pR, aL, aR, gamma);
         
         % Solve for the pressure ratio P using a nonlinear solver
-        P = newtonsMethod(PFun, dPFun, P_guess, 1e-5, 100);
+        P = newtonsMethod(PFun, dPFun, P_guess, 1e-9, 1000);
     
         % Calculate p2, rho2, V, and C using the obtained pressure ratio P
         % These are derived from the Rankine-Hugoniot relations and the conditions
@@ -169,7 +169,7 @@ function a1_33(~, ~)
         pressure = p5;
     end
     %%
-    function [density, mach_number, pressure] = computePostContact(p2, rhoL, gamma, pL, V)
+    function [density, mach_number, pressure] = computeRegion3(p2, rhoL, gamma, pL, V)
         % The pressure behind the contact surface is the same as the pressure p2
         % from the post-shock region, and since the flow is isentropic, the density
         % changes according to isentropic relations.
@@ -185,7 +185,7 @@ function a1_33(~, ~)
         mach_number = V / (sqrt(gamma * pressure / density)); % Mach number using the speed of sound after the contact surface
     end
     %%
-    function [density, mach_number, pressure] = computePostShock(P, pR, rhoR, gamma, V)
+    function [density, mach_number, pressure] = computePostContact(P, pR, rhoR, gamma, V)
         % This function computes the flow properties in region 2, which is 
         % immediately behind the shock wave and is governed by the Rankine-Hugoniot 
         % relations due to the shock.
@@ -201,7 +201,7 @@ function a1_33(~, ~)
         mach_number = V / sqrt(gamma * pressure / density);
     end
     %%
-    function [density, mach_number, pressure] = computeRegionR(rhoR, pR)
+    function [density, mach_number, pressure] = computePostShock(rhoR, pR)
             density = rhoR;
             mach_number = 0;
             pressure = pR;

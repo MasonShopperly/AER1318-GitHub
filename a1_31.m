@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Mason Shopperly
-% AER1318H W Topics in Computational Fluid Dynamics
+% AER1318H S Topics in Computational Fluid Dynamics
 % Filename: a1_31.m
 % Description: Mainline to determine the exact solution of the
 % subsonic quasi-one-dimensional channel flow problem specified
@@ -47,7 +47,7 @@ function a1_31(~, ~)
     function M = solveMachDistribution31(gamma, S, S_star, x)
         M = zeros(size(x)); % Initialize Mach number array
         M(:) = 0.5; % Initial guess for Mach number (subsonic)
-        options = optimoptions('fsolve', 'Display', 'off', 'TolFun', 1e-6);
+        options = optimoptions('fsolve', 'Display', 'off', 'TolFun', 1e-9);
         for i = 1:length(x)
             M(i) = fsolve(@(M) areaMachFunction31(M, gamma, S(x(i)), S_star), M(i), options);
         end
